@@ -10,11 +10,10 @@ import (
 
 type sudoku struct {
 	//Stats
-	currentCol          uint8 //Holds the current column
-	currentRow          uint8 //Holds the current row
-	iteration           uint8 //How many iteration have been done
-	startMissingValue   uint8 //Holds the number of missing values at the beginning of the sudoku
-	currentMissingValue uint8 //Holds the number of missing values at the current iteration
+	currentCol        uint8 //Holds the current column
+	currentRow        uint8 //Holds the current row
+	iteration         uint8 //How many iteration have been done
+	startMissingValue uint8 //Holds the number of missing values at the beginning of the sudoku
 	//Data
 	grid [][]uint8 // Slice which hold all sudoku table.
 	//Configuration
@@ -39,9 +38,17 @@ func SudokuFactory(grid [][]uint8) (s sudoku) {
 	}
 
 	s.startMissingValue = s.countMissingValues()
-	s.currentMissingValue = s.startMissingValue
 
 	return
+}
+
+func (s *sudoku) Solve() {
+	for s.iteration = 1; s.iteration <= s.size*s.size && !s.isComplete(); s.iteration++ {
+		s.PrintGrid()
+		s.findMissingValue()
+	}
+
+	s.PrintGrid()
 }
 
 // Return all the element in the current row.
@@ -84,65 +91,44 @@ func (s *sudoku) getShape(shapePos uint8) (ret []uint8) {
 }
 
 // Find all the missing number in the current row, column and shape,
-// Thene check if those 3 has 1 common missing numbe,
-// If so, then we can fill the current cell with that number.
-func (s *sudoku) findValue() *uint8 {
-	missingRow := s.getMissingNumber(s.getRowElements())
-	missingCol := s.getMissingNumber(s.getColElements())
-	missingShape := s.getMissingNumber(s.getShapeElements())
+// Thene check if those 3 has 1 common missing number,
+// If so, fill the current cell with that number.
+func (s *sudoku) findValue() uint8 {
+	removeFromArray := func(origin []uint8, comparison []uint8) []uint8 {
+		rem := make([]uint8, 0)
 
-	if len(missingCol) > 0 && len(missingRow) > 0 && len(missingShape) > 0 {
-		values := make(map[uint8]bool)
-		duplicates := make(map[uint8]bool)
-
-		findDuplicates := func(slice []uint8) {
-			for _, value := range slice {
-				if values[value] {
-					duplicates[value] = true
+		for _, v := range origin {
+			for _, value := range comparison {
+				if v == value {
+					rem = append(rem, v)
 				}
-				values[value] = true
 			}
 		}
 
-		findDuplicates(missingRow)
-		findDuplicates(missingCol)
-		findDuplicates(missingShape)
-
-		if len(duplicates) == 1 {
-			for key := range duplicates {
-				return &key
-			}
-		}
+		return pogo.FilterArray(origin, func(o uint8) bool {
+			return !pogo.ContainsArray(rem, o)
+		})
 	}
 
-	return nil
-}
+	values := make([]uint8, len(s.requiredNumbers))
+	copy(values, s.requiredNumbers)
+	r, c, h := s.getRowElements(), s.getColElements(), s.getShapeElements()
+	values = removeFromArray(values, r)
+	values = removeFromArray(values, c)
+	values = removeFromArray(values, h)
 
-// Returns all the missing number, from sudoku.requiredNumbers, in the given slice.
-func (s *sudoku) getMissingNumber(slice []uint8) []uint8 {
-	missing := make([]uint8, 0)
-
-	for _, number := range s.requiredNumbers {
-		if !pogo.ContainsArray(slice, number) {
-			missing = append(missing, number)
-		}
+	if len(values) == 1 {
+		return values[0]
 	}
 
-	return missing
+	return 0
 }
 
 // If there's no 0 value into the grid, then the sudoku is complete.
 func (s *sudoku) isComplete() bool {
-	return pogo.SomeInArray(s.grid, func(row []uint8) bool {
+	return pogo.EveryInArray(s.grid, func(row []uint8) bool {
 		return !pogo.ContainsArray(row, 0)
 	})
-}
-
-func (s *sudoku) Solve() {
-	for s.iteration = 1; s.iteration <= s.size*s.size && !s.isComplete(); s.iteration++ {
-		s.PrintGrid()
-		s.findMissingValue()
-	}
 }
 
 func (s *sudoku) findMissingValue() {
@@ -155,8 +141,9 @@ func (s *sudoku) findMissingValue() {
 			s.currentRow = uint8(i)
 			s.currentCol = uint8(j)
 
-			if v := s.findValue(); v != nil {
-				s.grid[i][j] = *v
+			if v := s.findValue(); v != 0 {
+				s.grid[i][j] = v
+				return
 			}
 		}
 	}
@@ -177,7 +164,7 @@ func (s *sudoku) countMissingValues() uint8 {
 }
 
 func (s *sudoku) PrintGrid() {
-	fmt.Printf("\nCurrent Iteration: %d\tMissing Values: %d\tStarting Missing Values: %d\n\n", s.iteration, s.currentMissingValue, s.startMissingValue)
+	fmt.Printf("\nCurrent Iteration: %d\tMissing Values: %d\tStarting Missing Values: %d\tCompleted: %t\n\n", s.iteration, s.countMissingValues(), s.startMissingValue, s.isComplete())
 	fmt.Printf("\n\t\t\t")
 
 	root := int(math.Sqrt(float64(s.size)))
