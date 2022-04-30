@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"github.com/osharko/sudoku/internal/config"
+	"github.com/osharko/sudoku/internal/pogo"
 )
 
 type sudoku struct {
@@ -15,7 +16,7 @@ type sudoku struct {
 	startMissingValue   uint8 //Holds the number of missing values at the beginning of the sudoku
 	currentMissingValue uint8 //Holds the number of missing values at the current iteration
 	//Data
-	grid []uint8 // Slice which hold all the rows as single slice. That should simplify the operation when searching by col.
+	grid [][]uint8 // Slice which hold all sudoku table.
 	//Configuration
 	size            uint8     // Size of a side of the grid. Ex: 9 for a 9x9 grid.
 	shapes          [][]uint8 // Represent all the shape of the grid. Each shape is made by the element's position into the grid.
@@ -24,9 +25,8 @@ type sudoku struct {
 
 // Since sudoku is a private struct, the only way to create a new sudoku is to use the SudokuFactory function.
 // This function is used to create a new sudoku, with the related configuration. It's a workaround due to golang's lack of constructor.
-func SudokuFactory() (s sudoku) {
+func SudokuFactory(grid [][]uint8) (s sudoku) {
 	configuration := config.GetSudokuConfig()
-	grid := config.GetSudokuDataEntry().GetLinearSlice()
 
 	s = sudoku{
 		currentCol:      0,
@@ -45,49 +45,51 @@ func SudokuFactory() (s sudoku) {
 }
 
 // Return all the element in the current row.
-func (s *sudoku) GetRowElements() []uint8 {
-	return s.grid[(s.size * s.currentRow):((s.size * s.currentRow) + s.size)]
+func (s *sudoku) getRowElements() (ret []uint8) {
+	for i := uint8(0); i < s.size; i++ {
+		ret = append(ret, s.grid[s.currentRow][i])
+	}
+
+	return
 }
 
 // Return all the element in the current column.
-func (s *sudoku) GetColElements() []uint8 {
-	ret := make([]uint8, s.size)
-
+func (s *sudoku) getColElements() (ret []uint8) {
 	for i := uint8(0); i < s.size; i++ {
-		ret[i] = s.grid[(i*s.size)+s.currentCol]
+		ret = append(ret, s.grid[i][s.currentCol])
 	}
 
-	return ret
+	return
 }
 
 // Accoring to the current row and column, returns all the element of the current shape.
-func (s *sudoku) GetShapeElements() []uint8 {
+func (s *sudoku) getShapeElements() []uint8 {
 	sizeRoot := math.Sqrt(float64(s.size))
 
 	row := uint8((math.Floor(float64(s.currentRow)/sizeRoot) * sizeRoot))
-	col := uint8(math.Round(float64(s.currentCol) / sizeRoot))
+	col := uint8(math.Floor(float64(s.currentCol) / sizeRoot))
 
 	return s.getShape(row + col)
 }
 
 // Returns all element in a given shape.
-func (s *sudoku) getShape(shapePos uint8) []uint8 {
-	ret := make([]uint8, s.size)
-
-	for i, element := range s.shapes[shapePos] {
-		ret[i] = s.grid[element]
+func (s *sudoku) getShape(shapePos uint8) (ret []uint8) {
+	for _, element := range s.shapes[shapePos] {
+		row := (element) / s.size
+		col := (element) % s.size
+		ret = append(ret, s.grid[row][col])
 	}
 
-	return ret
+	return
 }
 
 // Find all the missing number in the current row, column and shape,
 // Thene check if those 3 has 1 common missing numbe,
 // If so, then we can fill the current cell with that number.
-func (s *sudoku) FindValue() *uint8 {
-	missingRow := s.getMissingNumber(s.GetRowElements())
-	missingCol := s.getMissingNumber(s.GetColElements())
-	missingShape := s.getMissingNumber(s.GetShapeElements())
+func (s *sudoku) findValue() *uint8 {
+	missingRow := s.getMissingNumber(s.getRowElements())
+	missingCol := s.getMissingNumber(s.getColElements())
+	missingShape := s.getMissingNumber(s.getShapeElements())
 
 	if len(missingCol) > 0 && len(missingRow) > 0 && len(missingShape) > 0 {
 		values := make(map[uint8]bool)
@@ -111,13 +113,7 @@ func (s *sudoku) FindValue() *uint8 {
 				return &key
 			}
 		}
-
-		//fmt.Println("Duplicates: ", duplicates)
 	}
-
-	//fmt.Println("Missing number in row: ", missingRow)
-	//fmt.Println("Missing number in col: ", missingCol)
-	//fmt.Println("Missing number in shape: ", missingShape)
 
 	return nil
 }
@@ -127,7 +123,7 @@ func (s *sudoku) getMissingNumber(slice []uint8) []uint8 {
 	missing := make([]uint8, 0)
 
 	for _, number := range s.requiredNumbers {
-		if !contains(slice, number) {
+		if !pogo.ContainsArray(slice, number) {
 			missing = append(missing, number)
 		}
 	}
@@ -136,21 +132,32 @@ func (s *sudoku) getMissingNumber(slice []uint8) []uint8 {
 }
 
 // If there's no 0 value into the grid, then the sudoku is complete.
-func (s *sudoku) IsComplete() bool {
-	return !contains(s.grid, 0)
+func (s *sudoku) isComplete() bool {
+	return pogo.SomeInArray(s.grid, func(row []uint8) bool {
+		return !pogo.ContainsArray(row, 0)
+	})
 }
 
-func (s *sudoku) FindMissingValue() {
-	s.iteration++
-	s.PrintGrid()
+func (s *sudoku) Solve() {
+	for s.iteration = 1; s.iteration <= s.size*s.size && !s.isComplete(); s.iteration++ {
+		s.PrintGrid()
+		s.findMissingValue()
+	}
+}
 
-	for _, value := range s.grid {
-		if value == 0 {
-			continue
-		}
+func (s *sudoku) findMissingValue() {
+	for i, row := range s.grid {
+		for j, value := range row {
+			if value != 0 {
+				continue
+			}
 
-		if v := s.FindValue(); v != nil {
-			fmt.Println(v)
+			s.currentRow = uint8(i)
+			s.currentCol = uint8(j)
+
+			if v := s.findValue(); v != nil {
+				s.grid[i][j] = *v
+			}
 		}
 	}
 }
@@ -158,50 +165,38 @@ func (s *sudoku) FindMissingValue() {
 // Return the number of 0 into the grid.
 func (s *sudoku) countMissingValues() uint8 {
 	count := uint8(0)
-	for _, value := range s.grid {
-		if value == 0 {
-			count++
+	for _, row := range s.grid {
+		for _, value := range row {
+			if value == 0 {
+				count++
+			}
 		}
 	}
 
 	return count
 }
 
-func contains(slice []uint8, element uint8) bool {
-	for _, value := range slice {
-		if value == element {
-			return true
-		}
-	}
-	return false
-}
-
 func (s *sudoku) PrintGrid() {
 	fmt.Printf("\nCurrent Iteration: %d\tMissing Values: %d\tStarting Missing Values: %d\n\n", s.iteration, s.currentMissingValue, s.startMissingValue)
 	fmt.Printf("\n\t\t\t")
 
-	root := uint8(math.Sqrt(float64(s.size)))
+	root := int(math.Sqrt(float64(s.size)))
 
-	for i, value := range s.grid {
-		// +1 Because the grid is 0 based
-		index := uint8(i) + 1
-
-		//Print the current value
-		fmt.Printf("%d ", value)
-
-		//If we reach the end of a column, we need to go to the next row.
-		if index%root == 0 && i != 0 {
-			fmt.Printf("\t")
-		}
-
-		// Print a new line every time we reach the end of a row.
-		if index%s.size == 0 {
-			// Print an additional line, at the end of the shape
-			if index%(s.size*root) == 0 {
-				fmt.Println()
+	for i, row := range s.grid {
+		for j, value := range row {
+			//Print the current value
+			fmt.Printf("%d ", value)
+			//Reaching the end of the shape, print a tab.
+			if (j+1)%root == 0 {
+				fmt.Printf("\t")
 			}
-			fmt.Printf("\n\t\t\t")
 		}
+		// Print an additional line, at the end of the shape.
+		if (i+1)%root == 0 {
+			fmt.Println()
+		}
+		// Print a new line every time the end of a row have been reached.
+		fmt.Printf("\n\t\t\t")
 	}
-	fmt.Printf("\n\n")
+	fmt.Printf("\n----------------------------------------------------------------------------\n\n")
 }

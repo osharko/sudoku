@@ -2,14 +2,12 @@ package main
 
 import (
 	"github.com/osharko/sudoku/internal"
+	"github.com/osharko/sudoku/internal/config"
 )
 
 func main() {
-	sudoku := internal.SudokuFactory()
+	grid := config.GetSudokuDataEntry().Grid
+	sudoku := internal.SudokuFactory(grid)
 
-	/* fmt.Println(sudoku.GetRowElements())
-	fmt.Println(sudoku.GetColElements())
-	fmt.Println(sudoku.GetShapeElements()) */
-
-	sudoku.FindMissingValue()
+	sudoku.Solve()
 }
