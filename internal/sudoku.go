@@ -53,10 +53,8 @@ func (s *sudoku) GetRowElements() []uint8 {
 func (s *sudoku) GetColElements() []uint8 {
 	ret := make([]uint8, s.size)
 
-	var i uint8 = 0
-	for i < s.size {
+	for i := uint8(0); i < s.size; i++ {
 		ret[i] = s.grid[(i*s.size)+s.currentCol]
-		i++
 	}
 
 	return ret
@@ -142,19 +140,10 @@ func (s *sudoku) IsComplete() bool {
 	return !contains(s.grid, 0)
 }
 
-/* func (s *sudoku) FindMissingValue() *uint8 {
-	for i := uint8(0); i < s.size; i++ {
-		for j := uint8(0); j < s.size; j++ {
-			if s.grid[(i*s.size)+j] == 0 {
-				return &s.grid[(i*s.size)+j]
-			}
-		}
-	}
-
-	return nil
-} */
-
 func (s *sudoku) FindMissingValue() {
+	s.iteration++
+	s.PrintGrid()
+
 	for _, value := range s.grid {
 		if value == 0 {
 			continue
@@ -185,4 +174,34 @@ func contains(slice []uint8, element uint8) bool {
 		}
 	}
 	return false
+}
+
+func (s *sudoku) PrintGrid() {
+	fmt.Printf("\nCurrent Iteration: %d\tMissing Values: %d\tStarting Missing Values: %d\n\n", s.iteration, s.currentMissingValue, s.startMissingValue)
+	fmt.Printf("\n\t\t\t")
+
+	root := uint8(math.Sqrt(float64(s.size)))
+
+	for i, value := range s.grid {
+		// +1 Because the grid is 0 based
+		index := uint8(i) + 1
+
+		//Print the current value
+		fmt.Printf("%d ", value)
+
+		//If we reach the end of a column, we need to go to the next row.
+		if index%root == 0 && i != 0 {
+			fmt.Printf("\t")
+		}
+
+		// Print a new line every time we reach the end of a row.
+		if index%s.size == 0 {
+			// Print an additional line, at the end of the shape
+			if index%(s.size*root) == 0 {
+				fmt.Println()
+			}
+			fmt.Printf("\n\t\t\t")
+		}
+	}
+	fmt.Printf("\n\n")
 }
