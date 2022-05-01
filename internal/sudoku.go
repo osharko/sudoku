@@ -9,11 +9,12 @@ import (
 )
 
 var (
-	baseColor           = "\033[32m"
-	highlightColor      = "\033[33m"
+	primaryColor        = "\033[32m"
+	secondaryColor      = "\033[33m"
+	accentColor         = "\033[31m"
 	superHighlightColor = "\033[35m"
 
-	newFound *sudokuElement
+	printEachStep bool
 )
 
 type sudokuElement struct {
@@ -21,6 +22,7 @@ type sudokuElement struct {
 	isStartValue bool
 }
 
+// Well, it's simple and doesn't need explanations.
 func (e *sudokuElement) Fromuint8(matr [][]uint8) [][]sudokuElement {
 	ret := make([][]sudokuElement, len(matr))
 	for i, arr := range matr {
@@ -37,10 +39,11 @@ func (e *sudokuElement) Fromuint8(matr [][]uint8) [][]sudokuElement {
 
 type sudoku struct {
 	//Stats
-	currentCol        uint8 //Holds the current column
-	currentRow        uint8 //Holds the current row
-	iteration         uint8 //How many iteration have been done
-	startMissingValue uint8 //Holds the number of missing values at the beginning of the sudoku
+	currentCol        uint8          //Holds the current column
+	currentRow        uint8          //Holds the current row
+	iteration         uint8          //How many iteration have been done
+	newFound          *sudokuElement //Holds the last found value
+	startMissingValue uint8          //Holds the number of missing values at the beginning of the sudoku
 	//Data
 	grid [][]sudokuElement // Slice which hold all sudoku table.
 	//Configuration
@@ -51,10 +54,11 @@ type sudoku struct {
 
 // Since sudoku is a private struct, the only way to create a new sudoku is to use the SudokuFactory function.
 // This function is used to create a new sudoku, with the related configuration. It's a workaround due to golang's lack of constructor.
-func SudokuFactory(grid [][]uint8) (s sudoku) {
+func SudokuFactory(grid [][]uint8, printStep bool) (s sudoku) {
 	configuration := config.GetSudokuConfig()
 
 	var elApp sudokuElement
+	printEachStep = printStep
 
 	s = sudoku{
 		currentCol:      0,
@@ -71,16 +75,20 @@ func SudokuFactory(grid [][]uint8) (s sudoku) {
 	return
 }
 
+//Unlease the beast and solve the sudoku.
 func (s *sudoku) Solve() {
-	shouldContinue := true
-	for s.iteration = 1; s.iteration <= s.size*s.size && shouldContinue; s.iteration++ {
-		s.PrintGrid()
+	shouldGoAhead := true
+	// Continue solving until the sudoku is complete or there's no more found value.
+	for s.iteration = 1; shouldGoAhead; s.iteration++ {
+		if printEachStep {
+			s.printGrid(&s.iteration)
+		}
 		s.findMissingValue()
 
-		shouldContinue = !s.isComplete() && newFound != nil
+		shouldGoAhead = !s.isComplete() && s.newFound != nil
 	}
-
-	s.PrintGrid()
+	//Just a last winning print.
+	s.printGrid(nil)
 }
 
 // Return all the element in the current row.
@@ -136,59 +144,55 @@ func (s *sudoku) getShapeElements() []uint8 {
 // Thene check if those 3 has 1 common missing number,
 // If so, fill the current cell with that number.
 func (s *sudoku) findValue() uint8 {
-	removeFromArray := func(origin []uint8, comparison []uint8) []uint8 {
-		rem := make([]uint8, 0)
-
-		for _, v := range origin {
-			for _, value := range comparison {
-				if v == value {
-					rem = append(rem, v)
-				}
-			}
-		}
-
-		return pogo.FilterArray(origin, func(o uint8) bool {
-			return !pogo.ContainsArray(rem, o)
-		})
-	}
-
-	//Remove all the value that doesn't fit to that cell.
-	values := make([]uint8, len(s.requiredNumbers))
-	copy(values, s.requiredNumbers)
-	r, c, b := s.getRowElements(s.currentRow), s.getColElements(s.currentCol), s.getShapeElements()
-	values = removeFromArray(values, r)
-	values = removeFromArray(values, c)
-	values = removeFromArray(values, b)
+	//Iterate over all the missing values for the row/column/shape,
+	// and check if some of these value has only one suitable cell inside the shape.
+	values := pogo.FilterArray(s.getMissingValues(), s.isCellTheOnlySuitable)
 
 	//If only one possibility is left, than use that value.
 	if len(values) == 1 {
 		return values[0]
 	}
 
-	/* //Iterate over all the values and check if there is only one missing value.
-	v := pogo.FilterArray(values, func(valueCandidates uint8) bool {
-		cellToCheck := pogo.FilterArray(s.getCurrentShapeElementPosition(), func(pos uint8) bool {
-			row, col := s.getCordinatesFromPosition(pos)
-			return s.grid[row][col].value == 0
-		})
-
-		isRight := pogo.EveryInArray(cellToCheck, func(cell uint8) bool {
-			row, col := s.getCordinatesFromPosition(cell)
-			return s.isValid(row, col, valueCandidates)
-		})
-
-		return isRight
-	})
-
-	if len(v) == 1 {
-		return values[0]
-	}  */
-
 	return 0
 }
 
+// Check if a value has only one suitable cell inside the shape.
+func (s *sudoku) isCellTheOnlySuitable(valueCandidate uint8) bool {
+	// Get the the position of the cell, in the current shape, which has no value, excluding the current cell.
+	positionToCheck := pogo.FilterArray(s.getCurrentShapeElementPosition(), func(pos uint8) bool {
+		row, col := s.getCordinatesFromPosition(pos)
+		//Don't check the current cell.
+		return s.grid[row][col].value == 0 && !(row == s.currentRow && col == s.currentCol)
+	})
+	//Check if the current "valueCandidate" is applicable only to the current cell, no other cell must be a valid candidate to that value.
+	return pogo.EveryInArray(positionToCheck, func(cell uint8) bool {
+		row, col := s.getCordinatesFromPosition(cell)
+		return !s.isValid(row, col, valueCandidate)
+	})
+}
+
+// Get all the values not present in row, col, or shape.
+func (s *sudoku) getMissingValues() []uint8 {
+	presentValues := make(map[uint8]bool)
+
+	sendToMap := func(values []uint8) {
+		for _, v := range values {
+			presentValues[v] = true
+		}
+	}
+
+	sendToMap(s.getRowElements(s.currentRow))
+	sendToMap(s.getColElements(s.currentCol))
+	sendToMap(s.getShapeElements())
+
+	return pogo.FilterArray(s.requiredNumbers, func(v uint8) bool {
+		return !presentValues[v]
+	})
+}
+
+//Check if the given value is valid for the given cell.
 func (s *sudoku) isValid(row, col, num uint8) bool {
-	return !pogo.ContainsArray(s.getRowElements(row), num) && !pogo.ContainsArray(s.getColElements(col), num) && !pogo.ContainsArray(s.getShapeElements(), num)
+	return !pogo.ContainsArray(s.getRowElements(row), num) && !pogo.ContainsArray(s.getColElements(col), num)
 }
 
 // If there's no 0 value into the grid, then the sudoku is complete.
@@ -201,21 +205,26 @@ func (s *sudoku) isComplete() bool {
 	})
 }
 
+//Iterate one time through the grid, and try to find as much new value as it can.
 func (s *sudoku) findMissingValue() {
-	newFound = nil
+	//Reset the new Found value.
+	s.newFound = nil
 
+	//Iterate over the grid.
 	for i, row := range s.grid {
+		//Iterate over the row
 		for j, value := range row {
+			//Only 0 must be considered, otherwise the value has already been found.
 			if value.value != 0 {
 				continue
 			}
-
+			//Set row and col of the current cell.
 			s.currentRow = uint8(i)
 			s.currentCol = uint8(j)
-
+			//Get the missing value. If found, set to the grid, otherwise continue scanning and finding.
 			if v := s.findValue(); v != 0 {
 				s.grid[i][j].value = v
-				newFound = &s.grid[i][j]
+				s.newFound = &s.grid[i][j]
 				return
 			}
 		}
@@ -236,8 +245,18 @@ func (s *sudoku) countMissingValues() uint8 {
 	return count
 }
 
-func (s *sudoku) PrintGrid() {
-	fmt.Printf("\nCurrent Iteration: %d\tMissing Values: %d\tStarting Missing Values: %d\tCompleted: %t\n\n", s.iteration, s.countMissingValues(), s.startMissingValue, s.isComplete())
+//Print the grid with some stats, and different colors for different cell's status.
+func (s *sudoku) printGrid(iteration *uint8) {
+	head := ""
+	if iteration != nil {
+		head = fmt.Sprintf("Iteration %d\tMissing Values: %d\tStarting Missing Values: %d", *iteration, s.countMissingValues(), s.startMissingValue)
+	} else if iteration == nil && s.isComplete() {
+		head = "\t\t\t\tSolved"
+	} else {
+		head = "\t\t\t\tFailed"
+	}
+
+	fmt.Printf("\n%s\n\n", head)
 	fmt.Printf("\n\t\t\t")
 
 	root := int(math.Sqrt(float64(s.size)))
@@ -246,14 +265,16 @@ func (s *sudoku) PrintGrid() {
 	for i, row := range s.grid {
 		for j, value := range row {
 			//Print the current value
-			if newFound == &s.grid[i][j] {
+			if s.newFound == &s.grid[i][j] {
 				color = superHighlightColor
 			} else if value.isStartValue {
-				color = baseColor
+				color = primaryColor
+			} else if s.grid[i][j].value == 0 {
+				color = secondaryColor
 			} else {
-				color = highlightColor
+				color = accentColor
 			}
-			fmt.Printf("%s%d ", color, value.value)
+			fmt.Printf("%s%d%s ", color, value.value, primaryColor)
 			//Reaching the end of the shape, print a tab.
 			if (j+1)%root == 0 {
 				fmt.Printf("\t")
@@ -266,5 +287,5 @@ func (s *sudoku) PrintGrid() {
 		// Print a new line every time the end of a row have been reached.
 		fmt.Printf("\n\t\t\t")
 	}
-	fmt.Printf("\n----------------------------------------------------------------------------\n\n")
+	fmt.Printf("\n-------------------------------------------------------------------\n\n")
 }

@@ -7,7 +7,7 @@ import (
 
 func main() {
 	grid := config.GetSudokuDataEntry().Grid
-	sudoku := internal.SudokuFactory(grid)
+	sudoku := internal.SudokuFactory(grid, false)
 
 	sudoku.Solve()
 }
