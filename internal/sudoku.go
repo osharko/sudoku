@@ -72,51 +72,64 @@ func SudokuFactory(grid [][]uint8) (s sudoku) {
 }
 
 func (s *sudoku) Solve() {
-	for s.iteration = 1; s.iteration <= s.size*s.size && !s.isComplete(); s.iteration++ {
+	shouldContinue := true
+	for s.iteration = 1; s.iteration <= s.size*s.size && shouldContinue; s.iteration++ {
 		s.PrintGrid()
 		s.findMissingValue()
+
+		shouldContinue = !s.isComplete() && newFound != nil
 	}
 
 	s.PrintGrid()
 }
 
 // Return all the element in the current row.
-func (s *sudoku) getRowElements() (ret []uint8) {
+func (s *sudoku) getRowElements(row uint8) []uint8 {
+	ret := make([]uint8, s.size)
+
 	for i := uint8(0); i < s.size; i++ {
-		ret = append(ret, s.grid[s.currentRow][i].value)
+		ret[i] = s.grid[row][i].value
 	}
 
-	return
+	return ret
 }
 
 // Return all the element in the current column.
-func (s *sudoku) getColElements() (ret []uint8) {
+func (s *sudoku) getColElements(col uint8) []uint8 {
+	ret := make([]uint8, s.size)
+
 	for i := uint8(0); i < s.size; i++ {
-		ret = append(ret, s.grid[i][s.currentCol].value)
+		ret[i] = s.grid[i][col].value
 	}
 
-	return
+	return ret
 }
 
-// Accoring to the current row and column, returns all the element of the current shape.
-func (s *sudoku) getShapeElements() []uint8 {
+// Returns all the position of a given shape.
+func (s *sudoku) getCurrentShapeElementPosition() []uint8 {
 	sizeRoot := math.Sqrt(float64(s.size))
 
 	row := uint8((math.Floor(float64(s.currentRow)/sizeRoot) * sizeRoot))
 	col := uint8(math.Floor(float64(s.currentCol) / sizeRoot))
 
-	return s.getShape(row + col)
+	return s.shapes[row+col]
 }
 
-// Returns all element in a given shape.
-func (s *sudoku) getShape(shapePos uint8) (ret []uint8) {
-	for _, element := range s.shapes[shapePos] {
-		row := (element) / s.size
-		col := (element) % s.size
-		ret = append(ret, s.grid[row][col].value)
+// Return the row and column of the element at the given position.
+func (s *sudoku) getCordinatesFromPosition(pos uint8) (row, col uint8) {
+	return pos / s.size, pos % s.size
+}
+
+// Accoring to the current row and column, returns all the element of the current shape.
+func (s *sudoku) getShapeElements() []uint8 {
+	ret := make([]uint8, s.size)
+
+	for i, element := range s.getCurrentShapeElementPosition() {
+		row, col := s.getCordinatesFromPosition(element)
+		ret[i] = s.grid[row][col].value
 	}
 
-	return
+	return ret
 }
 
 // Find all the missing number in the current row, column and shape,
@@ -139,18 +152,43 @@ func (s *sudoku) findValue() uint8 {
 		})
 	}
 
+	//Remove all the value that doesn't fit to that cell.
 	values := make([]uint8, len(s.requiredNumbers))
 	copy(values, s.requiredNumbers)
-	r, c, h := s.getRowElements(), s.getColElements(), s.getShapeElements()
+	r, c, b := s.getRowElements(s.currentRow), s.getColElements(s.currentCol), s.getShapeElements()
 	values = removeFromArray(values, r)
 	values = removeFromArray(values, c)
-	values = removeFromArray(values, h)
+	values = removeFromArray(values, b)
 
+	//If only one possibility is left, than use that value.
 	if len(values) == 1 {
 		return values[0]
 	}
 
+	/* //Iterate over all the values and check if there is only one missing value.
+	v := pogo.FilterArray(values, func(valueCandidates uint8) bool {
+		cellToCheck := pogo.FilterArray(s.getCurrentShapeElementPosition(), func(pos uint8) bool {
+			row, col := s.getCordinatesFromPosition(pos)
+			return s.grid[row][col].value == 0
+		})
+
+		isRight := pogo.EveryInArray(cellToCheck, func(cell uint8) bool {
+			row, col := s.getCordinatesFromPosition(cell)
+			return s.isValid(row, col, valueCandidates)
+		})
+
+		return isRight
+	})
+
+	if len(v) == 1 {
+		return values[0]
+	}  */
+
 	return 0
+}
+
+func (s *sudoku) isValid(row, col, num uint8) bool {
+	return !pogo.ContainsArray(s.getRowElements(row), num) && !pogo.ContainsArray(s.getColElements(col), num) && !pogo.ContainsArray(s.getShapeElements(), num)
 }
 
 // If there's no 0 value into the grid, then the sudoku is complete.
@@ -164,6 +202,8 @@ func (s *sudoku) isComplete() bool {
 }
 
 func (s *sudoku) findMissingValue() {
+	newFound = nil
+
 	for i, row := range s.grid {
 		for j, value := range row {
 			if value.value != 0 {
