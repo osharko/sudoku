@@ -144,20 +144,34 @@ func (s *sudoku) getShapeElements() []uint8 {
 // Thene check if those 3 has 1 common missing number,
 // If so, fill the current cell with that number.
 func (s *sudoku) findValue() uint8 {
-	//Iterate over all the missing values for the row/column/shape,
-	// and check if some of these value has only one suitable cell inside the shape.
-	values := pogo.FilterArray(s.getMissingValues(), s.isCellTheOnlySuitable)
+	possibleValues := s.getMissingValues()
 
-	//If only one possibility is left, than use that value.
-	if len(values) == 1 {
-		return values[0]
+	if nakedSingle := s.nakedSingle(possibleValues); nakedSingle != 0 {
+		fmt.Println("ioZ")
+		return nakedSingle
+	} else if hiddenSingle := s.hiddenSingle(possibleValues); len(hiddenSingle) == 1 {
+		return hiddenSingle[0]
+	} else {
+		return 0
 	}
+}
 
+// Return the only present value, if more then one exists, then return noone (0).
+func (s *sudoku) nakedSingle(possibilities []uint8) uint8 {
+	if len(possibilities) == 1 {
+		return possibilities[0]
+	}
 	return 0
 }
 
+//Iterate over all the missing values for the row/column/shape,
+// and check if some of these value has only one suitable cell inside the shape.
+func (s *sudoku) hiddenSingle(possibilities []uint8) []uint8 {
+	return pogo.FilterArray(possibilities, s.isCellTheOnlySuitable)
+}
+
 // Check if a value has only one suitable cell inside the shape.
-func (s *sudoku) isCellTheOnlySuitable(valueCandidate uint8) bool {
+func (s *sudoku) isCellTheOnlySuitable(possibilities uint8) bool {
 	// Get the the position of the cell, in the current shape, which has no value, excluding the current cell.
 	positionToCheck := pogo.FilterArray(s.getCurrentShapeElementPosition(), func(pos uint8) bool {
 		row, col := s.getCordinatesFromPosition(pos)
@@ -167,7 +181,7 @@ func (s *sudoku) isCellTheOnlySuitable(valueCandidate uint8) bool {
 	//Check if the current "valueCandidate" is applicable only to the current cell, no other cell must be a valid candidate to that value.
 	return pogo.EveryInArray(positionToCheck, func(cell uint8) bool {
 		row, col := s.getCordinatesFromPosition(cell)
-		return !s.isValid(row, col, valueCandidate)
+		return !s.isValid(row, col, possibilities)
 	})
 }
 
@@ -253,7 +267,7 @@ func (s *sudoku) printGrid(iteration *uint8) {
 	} else if iteration == nil && s.isComplete() {
 		head = "\t\t\t\tSolved"
 	} else {
-		head = "\t\t\t\tFailed"
+		head = fmt.Sprintf("\t\tFailed after %d iterations, found %d values.", s.iteration, s.startMissingValue-s.countMissingValues())
 	}
 
 	fmt.Printf("\n%s\n\n", head)
